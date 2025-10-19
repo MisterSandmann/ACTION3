@@ -1,0 +1,150 @@
+name: Deploy Java App to AWS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Aktion'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - destroy
+
+env:
+  JAVA_VERSION: '17'
+  TF_VERSION: '1.6.0'
+
+jobs:
+  # ==========================================
+  # Einziger Job: Alles zusammen!
+  # ==========================================
+  deploy-or-destroy:
+    name: ${{ github.event.inputs.action == 'destroy' && 'Destroy Infrastructure' || 'Deploy Application' }}
+    runs-on: ubuntu-latest
+
+    environment: production
+
+    steps:
+      # ==========================================
+      # 1. Code & Setup
+      # ==========================================
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Java ${{ env.JAVA_VERSION }} einrichten
+        if: github.event.inputs.action != 'destroy'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'
+
+      - name: AWS Credentials konfigurieren
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Terraform Setup
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      # ==========================================
+      # 2. DESTROY Branch (wenn manuell ausgewählt)
+      # ==========================================
+      - name: 🗑️ Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        run: |
+          cd terraform
+          terraform init
+          terraform destroy -auto-approve \
+            -var="aws_region=${{ vars.AWS_REGION }}" \
+            -var="ami_id=${{ vars.AMI_ID }}" \
+            -var="instance_type=${{ vars.INSTANCE_TYPE }}" \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}"
+
+      - name: ✅ Destroy Complete
+        if: github.event.inputs.action == 'destroy'
+        run: |
+          echo "## 🗑️ Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All AWS resources have been removed." >> $GITHUB_STEP_SUMMARY
+
+      # ==========================================
+      # 3. DEPLOY Branch (Standard)
+      # ==========================================
+
+      # Build & Test
+      - name: 📦 Maven Build
+        if: github.event.inputs.action != 'destroy'
+        run: mvn clean package -DskipTests
+
+      - name: 🧪 Run Tests
+        if: github.event.inputs.action != 'destroy'
+        run: mvn test
+
+      # Infrastructure
+      - name: 🏗️ Terraform Init & Apply
+        if: github.event.inputs.action != 'destroy'
+        id: terraform
+        run: |
+          cd terraform
+          terraform init
+          terraform apply -auto-approve \
+            -var="aws_region=${{ vars.AWS_REGION }}" \
+            -var="ami_id=${{ vars.AMI_ID }}" \
+            -var="instance_type=${{ vars.INSTANCE_TYPE }}" \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}"
+
+          # EC2 IP extrahieren
+          INSTANCE_IP=$(terraform output -raw instance_public_ip)
+          echo "instance_ip=${INSTANCE_IP}" >> $GITHUB_OUTPUT
+          echo "Instance IP: ${INSTANCE_IP}"
+
+      # Deploy Application
+      - name: 🔑 SSH Key vorbereiten
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > deployer-key
+          chmod 600 deployer-key
+
+      - name: 🚀 Deploy Application
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          ./scripts/deploy.sh \
+            ${{ steps.terraform.outputs.instance_ip }} \
+            deployer-key \
+            target/demo-app.jar
+
+      # Summary
+      - name: 📊 Deployment Summary
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          echo "## 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🌐 Application URL" >> $GITHUB_STEP_SUMMARY
+          echo "**http://${{ steps.terraform.outputs.instance_ip }}:8080**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Endpoints" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GET /\` - Home" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GET /hello\` - Hello Message" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GET /hello/{name}\` - Personalized Greeting" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GET /actuator/health\` - Health Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🗑️ Cleanup" >> $GITHUB_STEP_SUMMARY
+          echo "To destroy the infrastructure:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Go to Actions → Deploy Java App to AWS" >> $GITHUB_STEP_SUMMARY
+          echo "2. Click 'Run workflow'" >> $GITHUB_STEP_SUMMARY
+          echo "3. Select 'destroy' from dropdown" >> $GITHUB_STEP_SUMMARY
+          echo "4. Click 'Run workflow'" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Important:** The Terraform state is stored in this workflow." >> $GITHUB_STEP_SUMMARY
+          echo "You must run destroy from the same workflow to clean up resources!" >> $GITHUB_STEP_SUMMARY

@@ -160,7 +160,7 @@ EOF
     sudo systemctl start demo-app.service
 
     echo "Waiting for application to start..."
-    sleep 50
+    sleep 120
 
     echo "Checking application status..."
     sudo systemctl status demo-app.service --no-pager

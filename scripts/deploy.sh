@@ -101,15 +101,60 @@ echo -e "${YELLOW}Deploying application on EC2...${NC}"
 ssh -o StrictHostKeyChecking=no -i "${SSH_KEY}" ubuntu@"${EC2_IP}" << 'ENDSSH'
     set -e
 
+    APP_USER="appuser"
+    APP_DIR="/opt/demo-app"
+    JAR_FILE="${APP_DIR}/demo-app.jar"
+
     echo "Stopping old application (if running)..."
     sudo systemctl stop demo-app.service || true
 
+    # 1️⃣ User erstellen, falls nicht vorhanden
+    if ! id -u "$APP_USER" >/dev/null 2>&1; then
+        echo "Creating user $APP_USER..."
+        sudo useradd -m -s /bin/bash $APP_USER
+    fi
+
+    # 2️⃣ App-Verzeichnis erstellen, falls nicht vorhanden
+    if [ ! -d "$APP_DIR" ]; then
+        echo "Creating application directory $APP_DIR..."
+        sudo mkdir -p "$APP_DIR"
+    fi
+
+    sudo chown $APP_USER:$APP_USER "$APP_DIR"
+
     echo "Moving JAR to application directory..."
-    sudo id -u appuser &>/dev/null || sudo useradd -m -s /bin/bash appuser
-    sudo mkdir -p /opt/demo-app
-    sudo chown -R appuser:appuser /opt/demo-app
-    sudo mv /tmp/demo-app.jar /opt/demo-app/demo-app.jar
-    sudo chown appuser:appuser /opt/demo-app/demo-app.jar
+    sudo mv /tmp/demo-app.jar "$JAR_FILE"
+    sudo chown $APP_USER:$APP_USER "$JAR_FILE"
+
+    # 4️⃣ systemd-Service-Datei erstellen, falls sie nicht existiert
+    SERVICE_FILE="/etc/systemd/system/demo-app.service"
+    if [ ! -f "$SERVICE_FILE" ]; then
+        echo "Creating systemd service file..."
+        sudo tee "$SERVICE_FILE" > /dev/null <<EOF
+[Unit]
+Description=Demo Spring Boot Application
+After=network.target
+
+[Service]
+User=$APP_USER
+WorkingDirectory=$APP_DIR
+ExecStart=/usr/bin/java -jar $JAR_FILE
+SuccessExitStatus=143
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    fi
+
+    # 5️⃣ Service starten und prüfen
+    echo "Reloading systemd daemon..."
+    sudo systemctl daemon-reload
+
+    echo "Starting application..."
+    sudo systemctl enable demo-app.service
+    sudo systemctl start demo-app.service
 
     echo "Starting application..."
     sudo systemctl start demo-app.service

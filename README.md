@@ -203,3 +203,4 @@ java -version  # Sollte Java 17 sein
 - Test 15
 - Test 16
 - Test 17 -Destroy
+- Test 18 -Destroy

@@ -9,7 +9,7 @@ on:
       action:
         description: 'Aktion'
         required: true
-        default: 'destroy'
+        default: 'deploy'
         type: choice
         options:
           - deploy

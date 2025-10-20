@@ -192,3 +192,4 @@ java -version  # Sollte Java 17 sein
 - vierter Test
 - fünfter Test
 - sechster Test
+- Test 7

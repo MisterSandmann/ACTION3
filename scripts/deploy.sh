@@ -105,6 +105,7 @@ ssh -o StrictHostKeyChecking=no -i "${SSH_KEY}" ubuntu@"${EC2_IP}" << 'ENDSSH'
     sudo systemctl stop demo-app.service || true
 
     echo "Moving JAR to application directory..."
+    sudo id -u appuser &>/dev/null || sudo useradd -m -s /bin/bash appuser
     sudo mkdir -p /opt/demo-app
     sudo chown -R appuser:appuser /opt/demo-app
     sudo mv /tmp/demo-app.jar /opt/demo-app/demo-app.jar

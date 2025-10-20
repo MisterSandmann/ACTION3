@@ -160,7 +160,7 @@ EOF
     sudo systemctl start demo-app.service
 
     echo "Waiting for application to start..."
-    sleep 10
+    sleep 30
 
     echo "Checking application status..."
     sudo systemctl status demo-app.service --no-pager
@@ -185,7 +185,7 @@ while ! curl -sf "http://${EC2_IP}:8080/actuator/health" > /dev/null; do
         exit 1
     fi
     echo "  Health check attempt ${HEALTH_RETRY_COUNT}/${MAX_HEALTH_RETRIES}..."
-    sleep 5
+    sleep 30
 done
 
 echo -e "${GREEN}✅ Application is healthy${NC}"
